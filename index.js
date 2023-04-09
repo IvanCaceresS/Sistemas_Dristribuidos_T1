@@ -1,41 +1,83 @@
 const express = require("express");
 const axios = require("axios");
-const redis = require('redis');
-
-const client = redis.createClient(); //Por defecto se conecta a localhost, puerto 6379
-
-(async () => {
-    await client.connect(); // Realiza la conexion
-})();
-
-client.on('ready', () => {
-    console.log('Conectado!'); //Se logró conectar
-});
-
-client.on("error", (err) => {
-    console.log(`${err}`); //Ocurrió un error
-});
+const { createClient } = require("redis");
+const responseTime = require("response-time");
 
 const app = express();
 
-client.get('games', (err, reply) => {
-    console.log(`${reply}`);
+// Connecting to redis
+const client = createClient({
+  host: "127.0.0.1",
+  port: 6379,
 });
 
-app.get("/games", async (req, res) => {
-    client.get('games', (err, reply) => {
-        console.log(reply);
-    });
+app.use(responseTime());
 
-    const response = await axios.get("https://www.freetogame.com/api/games");
+// Get all characters
+app.get("/games", async (req, res, next) => {
+  try {
+    // Search Data in Redis
+    const reply = await client.get("games");
 
-    client.set('games', JSON.stringify(response.data), (err, reply) => {
-        if(!err) console.log(err);
-        console.log(reply);
-    });
-    res.json(response.data);
-    console.log(response.data);
+    // if exists returns from redis and finish with response
+    if (reply) return res.send(JSON.parse(reply));
+
+    // Fetching Data from Rick and Morty API
+    const response = await axios.get(
+      "https://www.freetogame.com/api/games"
+    );
+
+    // Saving the results in Redis. The "EX" and 10, sets an expiration of 10 Seconds
+    const saveResult = await client.set(
+      "games",
+      JSON.stringify(response.data),
+      {
+        EX: 20,
+      }
+    );
+    console.log(saveResult)
+
+    // resond to client
+    res.send(response.data);
+  } catch (error) {
+    res.send(error.message);
+  }
 });
 
-app.listen(3000);
-console.log("Servidor alojado en puerto 3000");
+// Get a single character
+app.get("/game/:id", async (req, res, next) => {
+  try {
+    const reply = await client.get(req.params.id);
+
+    if (reply) {
+      console.log("using cached data");
+      return res.send(JSON.parse(reply));
+    }
+
+    const response = await axios.get(
+      "https://www.freetogame.com/api/game?id=" + req.params.id
+    );
+    const saveResult = await client.set(
+      req.params.id,
+      JSON.stringify(response.data),
+      {
+        EX: 20,
+      }
+    );
+
+    console.log("saved data:", saveResult);
+
+    res.send(response.data);
+  } catch (error) {
+    console.log(error);
+    res.send(error.message);
+  }
+});
+
+async function main() {
+  await client.connect();
+  app.listen(3000);
+  console.log("server listen on port 3000");
+}
+
+main();
