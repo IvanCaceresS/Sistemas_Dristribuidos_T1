@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+service metmuseum_proto {
+  rpc Get (ObjectId) returns (Objects) {}
+}
+
+message ObjectId {
+  int32 id = 1;
+}
+
+message Object {
+  int32 objectID = 1;
+  string objectURL = 53;
+}
+
+message Objects {
+  repeated Object Objects = 1;
+}
